@@ -18,7 +18,7 @@
 #' }
 #' @export
 
-rho.calc = function(l , Gamma , A, Sigma) {
+rho_calc = function(l , Gamma , A, Sigma) {
   gamma12 = t(Gamma[l,-l])
 
   S1 = matrix(0, nrow = length(gamma12[gamma12 != 0]), ncol = nrow(Gamma) - 1)
@@ -57,10 +57,10 @@ rho.calc = function(l , Gamma , A, Sigma) {
   direct.pos = which(Gamma[l,] != 0)
 
   M = diag(ncol(Gamma22)) - gamma21 %*% gamma12 - Gamma22
-  Minv = solve(M)
+  Minv = MASS::ginv(M)
   fr = Minv %*% c
   Omega = Minv %*% (Sigma22 - (sigma21 %*% sigma12) / sigma11) %*% t(Minv)
-  gammas = S1 %*% (t(gamma12) * t(t((dec.calc(Gamma, Sigma)$C + dec.calc(Gamma, Sigma)$Psi1)[l, -l])))
+  gammas = S1 %*% (t(gamma12) * t(t((dec_calc(Gamma, Sigma)$C + dec_calc(Gamma, Sigma)$Psi1)[l, -l])))
 
   fs = S1 %*% fr
 
@@ -80,7 +80,7 @@ rho.calc = function(l , Gamma , A, Sigma) {
   Pi = S1 %*% Minv %*% B
   Omegas = S1 %*% Omega %*% t(S1)
 
-  rho = matrixcalc::hadamard.prod(gammas, fs)
+  rho = gammas*fs
   rho.tbl = data.frame(cbind(direct.pos, rho))
   colnames(rho.tbl) = c("Feedback eqn.", "rho.est")
 

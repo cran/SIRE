@@ -5,22 +5,20 @@
 #' Testing for Feedback Effects in a Simultaneous Equation Model
 #'
 #' @param data the data frame containing the data
-#' @param out.decompose the decomposition object resulting from \code{causal.decompose()}
+#' @param out.decompose the decomposition object resulting from \code{causal_decompose()}
 #' @param eq.id the equation to be tested for feedback effects
-#' @param seed.in seed number for the perturbation parameters draws
-#' @param n.init number of different initializations of the parameters
-#' @param range.init range of the Uniform distribution for the perturbation on the initial values
-#' @param info logical, prints the trace of the Nelder-Mead optimization routine
-#' @param maxit maximum number of iterations for the Nelder-Mead optimization routine
-#' @param perc.print print option: decimal number indicating how often (in percentage) information on the progress must be printed.
-#'
+#' @param lb lower bound of the parameter space required for \code{gosolnp}
+#' @param ub upper bound of the parameter space required for \code{gosolnp}
+#' @param nrestarts number of solver restarts (as in \code{gosolnp})
+#' @param nsim number of random parameters to generate for every restart of the solver (as in \code{gosolnp})
+#' @param seed.in seed number for gosolnp routine
 #' @return A list with components \itemize{
 #'\item \code{rho.est}: a data frame with the maximum likelihood estimate of \eqn{rho} and the
 #'equations with which each element is involved in feedback-like mechanisms
-#'\item \code{loglik}: the value of the log-likelihood
+#'\item \code{loglik}: the value of the log-likelihood of the model
 #'\item \code{theta.hessian}: the hessian matrix for the estimated parameters
 #'\item \code{rho.jacobian}: the Jacobian matrix of \eqn{\rho} with respect to the entire set of parameters
-#'
+#'\item \code{wald}: the resulting Wald test statistic
 #' }
 #'
 #' @examples
@@ -36,38 +34,27 @@
 #'
 #' instruments = ~ T + CP_1 + GDP_1 + K_1
 #'
-#' c.dec = causal.decompose(data = macroIT,
+#' c.dec = causal_decompose(data = macroIT,
 #'                          eq.system = eq.system,
 #'                          resid.est = "noDfCor",
-#'                          instruments = instruments,
-#'                          p.adj = TRUE,
-#'                          alpha = 0.05)
+#'                          instruments = instruments)
 #'
-#' feedback.ml(data = macroIT,
+#' feedback_ml(data = macroIT,
 #'               out.decompose = c.dec,
-#'               eq.id = 2,
-#'               seed.in = 10,
-#'               n.init = 50,
-#'               range.init = c(-1,1),
-#'               info = TRUE,
-#'               maxit = 1000,
-#'               perc.print = 0)
-#'               }
-#'
+#'               eq.id = 5,
+#'               lb = -200,
+#'               ub = 200,
+#'               nrestarts = 10,
+#'               nsim = 20000,
+#'               seed.in = 1)
+#'}
 #' @export
 
-feedback.ml =
-  function(data,
-           out.decompose,
-           eq.id,
-           seed.in = 10,
-           n.init = 50,
-           range.init = c(-0.5, 0.5),
-           info = T,
-           maxit = 20000,
-           perc.print=0) {
+feedback_ml = function(data, out.decompose, eq.id,
+                       lb = -200, ub = 200, nrestarts = 10,
+                       nsim = 20000, seed.in = 1) {
 
-    eq.system = out.decompose$output$eq.system
+    eq.system = out.decompose$eq.system
 
     if (eq.id < 1 || eq.id > length(eq.system)) {
       stop("Argument 'eq.id' must be between 1 and the length of the system of equation.")
@@ -79,18 +66,6 @@ feedback.ml =
 
     if (eq.id %% 1 != 0) {
       stop("Argument 'eq.id' must be an integer value.")
-    }
-
-    if (range.init[1]>=range.init[2] || length(range.init)!=2) {
-      stop("Argument 'range.init' must be a interval of length 2.")
-    }
-
-    if (n.init<=0 || n.init%% 1 != 0) {
-      stop("Argument 'n.init' must be integer and positive.")
-    }
-
-    if (perc.print < 0 || perc.print >1) {
-      stop("Argument 'perc.print' must be between 0 and 1.")
     }
 
     # -------------------------------------------- #
@@ -137,9 +112,9 @@ feedback.ml =
       },
       sorted.rhs, as.list(y.vars))
 
-    Gamma = out.decompose$output$Gamma
-    A = out.decompose$output$A
-    Sigma = out.decompose$output$systemfit$residCovEst
+    Gamma = out.decompose$Gamma
+    A = out.decompose$A
+    Sigma = out.decompose$Sigma
 
     l = eq.id
 
@@ -147,34 +122,26 @@ feedback.ml =
     #  Starting Values  #
     # ----------------- #
 
-    U = chol(Sigma) * out.decompose$output$Sigma
-
-    UStar = which(U %in% (U[-l, -l]))
+    U = chol(Sigma)
 
     pos.gamma = matrix(as.numeric(Gamma != 0),
                        nrow = nrow(Gamma),
                        ncol = ncol(Gamma))
 
-    pos.U = matrix(as.numeric(!(U %in% c(0, U[UStar]))),
+    pos.U = matrix(as.numeric(U != 0),
                    nrow = nrow(U),
                    ncol = ncol(U))
 
-    pos.UStar = matrix(as.numeric(U != 0 & U %in% c(U[UStar])),
-                       nrow = nrow(U),
-                       ncol = ncol(U))
-
     dg = sum(pos.gamma)
-    ds = sum(pos.U)
+    ds = nrow(Sigma)*(nrow(Sigma)+1)/2
     D = dg + ds
 
     L.gamma = nrow(pos.gamma)
     L.sigma = nrow(pos.U)
 
     initial.values = numeric(D)
-    initial.values = c(Gamma[which((pos.gamma != 0))], unique(U[which(pos.U != 0)]))
-
-    Sigma = out.decompose$output$Sigma
-    fb.mat = rho.calc(l = l, Gamma, A, Sigma)
+    initial.values = c(Gamma[which((pos.gamma != 0))], (U[which(U != 0)]))
+    fb.mat = rho_calc(l = l, Gamma, A, Sigma)
 
     S1 = fb.mat$S1
     S2 = fb.mat$S2
@@ -189,10 +156,9 @@ feedback.ml =
     #  Data for likelihood function  #
     # ------------------------------ #
 
-    intercepts = unlist(lapply(out.decompose$output$systemfit$eq, function(x) {
+    intercepts = unlist(lapply(out.decompose$systemfit$eq, function(x) {
       x$coefficients[1]
     }))
-
 
     y1 = t(as.matrix(data[, which(colnames(data) == y.vars[l])])) - c(intercepts[l])
     y2 = data[, which(colnames(data) %in% y.vars[-l])]
@@ -217,22 +183,19 @@ feedback.ml =
     S00 = S0
     S10 = S1
     S20 = S2
-    pos.UStar0 = pos.UStar
-    U0 = U * pos.UStar
 
-    fn = function(par,
+    fn = function(param,
                    X,
                    l = l0,
                    L.gamma = L.gamma0,
                    L.sigma = L.sigma0,
                    A = A0,
-                   U = U0,
                    pos.gamma = pos.gamma0,
                    pos.U = pos.U0,
-                   pos.UStar = pos.UStar0,
                    S1 = S10,
                    S2 = S20,
                    S0 = S00) {
+
       # ------- #
       #  gamma  #
       # ------- #
@@ -245,7 +208,8 @@ feedback.ml =
 
       contg = sum(pos.gamma)
 
-      gamma[pos.gamma != 0] = par[1:contg]
+
+      gamma[pos.gamma != 0] = param[1:contg]
 
       # ------- #
       #  sigma  #
@@ -257,13 +221,11 @@ feedback.ml =
           paste("X.", 1:L.sigma, sep = "")
         ))
 
-      contu = contg + sum(pos.U)
+      contu = contg + L.sigma*(L.sigma+1)/2
 
-      U[pos.U != 0] = par[(contg + 1):contu]
+      U[pos.U != 0] = param[(contg + 1):contu]
 
-      UU = U + U0
-
-      sigma = crossprod(UU)
+      sigma = crossprod(U)
 
       sigma11 = sigma[l, l]
       sigma12 = t(sigma[l,-l])
@@ -281,7 +243,7 @@ feedback.ml =
       B = A2 + gamma21 %*% a1
       c = gamma21 + sigma21 / sigma11
       M = diag(ncol(Gamma22)) - gamma21 %*% gamma12 - Gamma22
-      Minv = solve(M)
+      Minv = MASS::ginv(M)
 
       fr = Minv %*% c
       Omega = Minv %*% (Sigma22 - (sigma21 %*% sigma12) / sigma11) %*% t(Minv)
@@ -304,27 +266,25 @@ feedback.ml =
 
       # ---------------- #
       #  -loglikelihood  #
-      # ---------------- # -(
-      -(-0.5 * ncol(X) * log(sigma11) - 0.5 * ncol(X) * log(det(Omega0)) -
+      # ---------------- #
+      as.numeric(-(-0.5 * ncol(X) * log(sigma11) - 0.5 * ncol(X) * log(det(Omega0)) -
         (1 / (2 * sigma11)) * (t(alpha) %*% (X %*% t(X)) %*% alpha) -
-        0.5 * matrixcalc::matrix.trace((t(beta) %*% solve(Omega0) %*% beta) %*% (X %*% t(X)))
-      )
+        0.5 * matrixcalc::matrix.trace((t(beta) %*% MASS::ginv(Omega0) %*% beta) %*% (X %*% t(X)))
+      ))
     }
 
     # -------------------------- #
     #  rho function for Jacobian #
     # -------------------------- #
 
-    eqn = function(par,
+    eqn = function(param,
                     X,
                     l = l0,
                     L.gamma = L.gamma0,
                     L.sigma = L.sigma0,
                     A = A0,
-                    U = U0,
                     pos.gamma = pos.gamma0,
                     pos.U = pos.U0,
-                    pos.UStar = pos.UStar0,
                     S1 = S10,
                     S2 = S20,
                     S0 = S00)
@@ -343,7 +303,7 @@ feedback.ml =
         ))
 
       contg = sum(pos.gamma)
-      gamma[pos.gamma != 0] = par[1:contg]
+      gamma[pos.gamma != 0] = param[1:contg]
 
 
       # ------- #
@@ -357,12 +317,9 @@ feedback.ml =
         ))
 
       contu = contg + sum(pos.U)
-      U[pos.U != 0] = par[(contg + 1):contu]
+      U[pos.U != 0] = param[(contg + 1):contu]
 
-      UU = U + U0
-
-
-      sigma = crossprod(UU)
+      sigma = crossprod(U)
 
       sigma11 = sigma[l, l]
       sigma12 = t(sigma[l,-l])
@@ -391,7 +348,7 @@ feedback.ml =
       fss = S0 %*% fs
       gammass = S0 %*% gammas
 
-      rho = matrixcalc::hadamard.prod(fs, gammas)
+      rho = fs * gammas
 
       return(c(rho))
     }
@@ -400,52 +357,42 @@ feedback.ml =
     #  Optimization - multistart  #
     # --------------------------- #
 
-    set.seed(seed.in)
-    res.optim=list()
+    fit.ur=Rsolnp::gosolnp(fun=fn,
+                  LB = rep(lb,length(initial.values)),
+                  UB = rep(ub, length(initial.values)),
+                  l = l0,
+                  X = w,
+                  L.gamma = L.gamma0,
+                  L.sigma = L.sigma0,
+                  A = A0,
+                  pos.gamma = pos.gamma0,
+                  pos.U = pos.U0,
+                  S1 = S10,
+                  S2 = S20,
+                  S0 = S00,
+                  distr = rep(1,length(initial.values)),
+                  n.restarts = nrestarts,
+                  n.sim = nsim,
+                  rseed = seed.in)
 
-    kp=1
-    for (j in 1:n.init) {
-      res.optim[[j]] =
-      stats::optim(
-        initial.values + stats::runif(D, range.init[1], range.init[2]),
-        fn = fn,
-        method = "Nelder-Mead",
-        hessian = TRUE,
-        control = list(trace = info,
-                       maxit = maxit),
-        l = l0,
-        upper = Inf,
-        lower = -Inf,
-        X = w,
-        L.gamma = L.gamma0,
-        L.sigma = L.sigma0,
-        A = A0,
-        U = U0,
-        pos.gamma = pos.gamma0,
-        pos.U = pos.U0,
-        S1 = S10,
-        S2 = S20,
-        S0 = S00
-      )
+    pars = fit.ur$pars
+    logl = fit.ur$values[length(fit.ur$values)]
 
+    # Jacobian matrix
 
-      if(((j-1)/n.init)<(kp*perc.print) && ((j)/n.init)>=(kp*perc.print)){
-      print(paste("Progress",100*j/n.init,"%"))
-      kp=kp+1
-    }
-}
-
-    logl.s = unlist(lapply(res.optim,function(x){x$value*(-1)}))
-    pars.s = do.call(cbind,lapply(res.optim,function(x){
-      x$par}))
-
-    id.max=which.max(logl.s)
-    logl=logl.s[id.max]
-    pars=pars.s[,id.max]
-
-    # ----------------- #
-    #  Output creation  #
-    # ----------------- #
+    J.mat = numDeriv::jacobian(
+      eqn,
+      x = pars,
+      X = w,
+      l = l0,
+      L.gamma = L.gamma0,
+      A = A0,
+      pos.gamma = pos.gamma0,
+      pos.U = pos.U0,
+      S1 = S10,
+      S2 = S20,
+      S0 = S00
+    )
 
     # Hessian matrix
 
@@ -472,41 +419,22 @@ feedback.ml =
 
     u.ml = pars[(dg + 1):D]
     U.ml[U.ml == 1] = u.ml
-    Sigma.ml = crossprod(U.ml + U0)
+    Sigma.ml = crossprod(U.ml)
 
     # Rho estimate
 
-    rho = rho.calc(l,
-                   Gamma = Gamma.ml,
-                   Sigma = Sigma.ml,
-                   A = A)$rho.tbl[, 2]
-    rho.ml = rho.calc(l,
+    rho.ml = rho_calc(l,
                       Gamma = Gamma.ml,
                       Sigma = Sigma.ml,
                       A = A)$rho.tbl
 
-    # Jacobian matrix
-
-    J.mat = numDeriv::jacobian(
-      eqn,
-      x = pars,
-      X = w,
-      l = l0,
-      L.gamma = L.gamma0,
-      L.sigma = L.sigma0,
-      A = A0,
-      U = U0,
-      pos.gamma = pos.gamma0,
-      pos.U = pos.U0,
-      S1 = S10,
-      S2 = S20,
-      S0 = S00
-    )
+    wald = t(rho.ml[,2])%*%MASS::ginv((J.mat)%*%MASS::ginv(hessian)%*%t(J.mat))%*%rho.ml[,2]
 
     return(list(
       rho.est = rho.ml,
       loglik = logl,
       theta.hessian = hessian,
-      rho.jacobian = J.mat
+      rho.jacobian = J.mat,
+      wald = wald
     ))
   }

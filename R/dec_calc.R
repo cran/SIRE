@@ -18,7 +18,7 @@
 #' @export
 
 
-dec.calc = function(Gamma,
+dec_calc = function(Gamma,
                     Sigma){
 
   if(sum(diag(Gamma))!= 0 || nrow(Gamma)!=ncol(Gamma)){
@@ -40,8 +40,8 @@ dec.calc = function(Gamma,
 
   R = as.matrix((t(Reduce('+', powers)) != 0) + 0)
   U = matrix(1, nrow = L , ncol = L)
-  C = matrixcalc::hadamard.prod(gamma.b, R)
-  Psi = matrixcalc::hadamard.prod(gamma.b, ((U - R)))
+  C = gamma.b * R
+  Psi = gamma.b * (U - R)
   C.b = as.matrix((C != 0) + 0)
   I = diag(L)
   sigma.b = (Sigma != 0) + 0
